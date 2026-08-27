@@ -1,0 +1,75 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+readonly image="${OFFICE_VIVADO_IMAGE:-localhost/office-vivado-2024.1:ubuntu22.04}"
+readonly xilinx_root="${OFFICE_XILINX_ROOT:-/opt/amd/Xilinx}"
+readonly vivado_bin="${OFFICE_VIVADO_BIN:-/opt/Xilinx/Vivado/2024.1/bin/vivado}"
+# The installed node-locked license uses the host Ethernet MAC as its Host ID.
+# Sharing the host network namespace exposes that physical interface to FlexNet.
+readonly network="${OFFICE_VIVADO_NETWORK:-host}"
+readonly license_dir="${OFFICE_XILINX_LICENSE_DIR:-$HOME/.Xilinx}"
+
+if ! command -v podman >/dev/null 2>&1; then
+    echo "ADR-EDA-VIVADO-PODMAN-MISSING: podman is unavailable on the Ubuntu build host; install the project Linux FPGA runtime." >&2
+    exit 127
+fi
+
+if ! podman image exists "$image"; then
+    echo "ADR-EDA-VIVADO-IMAGE-MISSING: container image '$image' is unavailable; build tools/linux_fpga/Containerfile.ubuntu22.04." >&2
+    exit 127
+fi
+
+if [[ ! -x "$xilinx_root/Vivado/2024.1/bin/vivado" ]]; then
+    echo "ADR-EDA-VIVADO-TOOL-MISSING: Vivado 2024.1 is not installed under '$xilinx_root'; install the AMD Linux toolchain with Zynq UltraScale+ RFSoC support." >&2
+    exit 127
+fi
+
+workdir="$(realpath -e "$PWD")"
+if [[ "$workdir" == /srv/interop/* ]]; then
+    bind_root=/srv/interop
+else
+    bind_root="$workdir"
+fi
+
+podman_args=(
+    run
+    --rm
+    --network "$network"
+    --cap-drop all
+    --security-opt no-new-privileges
+    --pids-limit -1
+    --shm-size 8g
+    --ulimit nofile=65536:65536
+    --env HOME=/tmp
+    --env LANG=en_US.UTF-8
+    --env LC_ALL=en_US.UTF-8
+    --volume "$xilinx_root:/opt/Xilinx:ro"
+    --volume "$bind_root:$bind_root:rw"
+    --workdir "$workdir"
+)
+
+if [[ -n "${XILINXD_LICENSE_FILE:-}" && ! -f "$XILINXD_LICENSE_FILE" ]]; then
+    # Preserve floating-license expressions such as 2100@license-server.
+    podman_args+=(--env "XILINXD_LICENSE_FILE=$XILINXD_LICENSE_FILE")
+else
+    license_files=()
+    if [[ -n "${XILINXD_LICENSE_FILE:-}" ]]; then
+        license_files+=("$XILINXD_LICENSE_FILE")
+    elif [[ -d "$license_dir" ]]; then
+        mapfile -d '' license_files < <(
+            find "$license_dir" -maxdepth 1 -type f -name '*.lic' -print0 | sort -z
+        )
+    fi
+    if [[ ${#license_files[@]} -gt 0 ]]; then
+        container_license_paths=()
+        for index in "${!license_files[@]}"; do
+            container_path="/tmp/.Xilinx/license-${index}.lic"
+            podman_args+=(--volume "${license_files[$index]}:$container_path:ro")
+            container_license_paths+=("$container_path")
+        done
+        license_path_list="$(IFS=:; printf '%s' "${container_license_paths[*]}")"
+        podman_args+=(--env "XILINXD_LICENSE_FILE=$license_path_list")
+    fi
+fi
+
+exec podman "${podman_args[@]}" "$image" "$vivado_bin" "$@"

@@ -1,0 +1,74 @@
+#!/usr/bin/env bash
+set -u
+
+if [[ $# -ne 2 ]]; then
+    echo "usage: office-vivado-runner JOB_NAME ENTRY_TCL" >&2
+    exit 64
+fi
+
+job_name="$1"
+entry_tcl="$2"
+
+if [[ ! "$job_name" =~ ^[A-Za-z0-9._-]+$ ]]; then
+    echo "ADR-EDA-RUNNER-JOB-NAME: invalid job name; use only letters, digits, dot, underscore, or hyphen." >&2
+    exit 64
+fi
+
+if [[ "$entry_tcl" = /* || "$entry_tcl" == *".."* ]]; then
+    echo "ADR-EDA-RUNNER-ENTRY-PATH: entry Tcl must be a relative path inside the staged job." >&2
+    exit 64
+fi
+
+readonly jobs_root="/srv/interop/fpga/jobs"
+readonly artifacts_root="/srv/interop/fpga/artifacts"
+job_dir="$(realpath -e "$jobs_root/$job_name" 2>/dev/null || true)"
+
+if [[ -z "$job_dir" || "$job_dir" != "$jobs_root/"* ]]; then
+    echo "ADR-EDA-RUNNER-JOB-MISSING: job directory is missing or outside '$jobs_root'." >&2
+    exit 66
+fi
+
+entry_path="$(realpath -e "$job_dir/$entry_tcl" 2>/dev/null || true)"
+if [[ -z "$entry_path" || "$entry_path" != "$job_dir/"* || ! -f "$entry_path" ]]; then
+    echo "ADR-EDA-RUNNER-ENTRY-MISSING: entry Tcl is missing or outside the staged job." >&2
+    exit 66
+fi
+
+artifact_dir="$artifacts_root/$job_name"
+install -d -m 0770 "$artifact_dir"
+
+vivado_bin="${VIVADO_BIN:-/usr/local/bin/office-vivado}"
+if [[ ! -x "$vivado_bin" ]]; then
+    printf 'VIVADO_WRAPPER_MISSING\n' > "$artifact_dir/status.txt"
+    echo "ADR-EDA-RUNNER-WRAPPER-MISSING: '$vivado_bin' is not executable; deploy the ADR Linux Vivado wrapper." | tee "$artifact_dir/console.log" >&2
+    exit 127
+fi
+
+marker="$(mktemp "$artifact_dir/.start.XXXXXX")"
+printf 'RUNNING\n' > "$artifact_dir/status.txt"
+
+set +e
+(
+    cd "$job_dir"
+    "$vivado_bin" -mode batch \
+        -source "$entry_path" \
+        -log "$artifact_dir/vivado.log" \
+        -journal "$artifact_dir/vivado.jou"
+) 2>&1 | tee "$artifact_dir/console.log"
+vivado_rc=${PIPESTATUS[0]}
+set -e
+
+install -d -m 0770 "$artifact_dir/outputs"
+while IFS= read -r -d '' output; do
+    relative="${output#"$job_dir"/}"
+    install -D -m 0660 "$output" "$artifact_dir/outputs/$relative"
+done < <(
+    find "$job_dir" -type f -newer "$marker" \
+        \( -name '*.bit' -o -name '*.bin' -o -name '*.ltx' -o -name '*.xsa' -o -name '*.dcp' -o -name '*.rpt' \) \
+        -print0
+)
+
+rm -f -- "$marker"
+printf 'EXIT_CODE=%s\n' "$vivado_rc" > "$artifact_dir/status.txt"
+exit "$vivado_rc"
+

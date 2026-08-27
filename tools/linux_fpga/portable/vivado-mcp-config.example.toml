@@ -1,0 +1,26 @@
+[host]
+name = "adr-fpga-builder"
+ssh = "USER@BUILD_HOST"
+agent_dir = "~/.vivado-mcp"
+max_concurrent_jobs = 1
+default_jobs = 16
+nice = 0
+stall_timeout_s = 900
+ssh_options = ["BatchMode=yes", "ServerAliveInterval=15", "ServerAliveCountMax=3"]
+
+[[host.tools]]
+label = "vivado-2024.1"
+kind = "vivado"
+settings_sh = "/usr/local/libexec/office-vivado-mcp/settings64.sh"
+default = true
+
+[[workspace]]
+name = "ADR"
+local = "/ABSOLUTE/CLIENT/PATH/TO/ADR"
+host = "adr-fpga-builder"
+build = "build"
+default = true
+
+[security]
+allow_eval = true
+

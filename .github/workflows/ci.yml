@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  static-checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check shell syntax
+        shell: bash
+        run: |
+          set -euo pipefail
+          while IFS= read -r -d '' script; do
+            bash -n "$script"
+          done < <(find tools -type f \( -name '*.sh' -o -name 'office-*' \) -print0)
+
+      - name: Check PowerShell syntax
+        shell: pwsh
+        run: |
+          $failed = $false
+          Get-ChildItem -Recurse -Filter '*.ps1' | ForEach-Object {
+            $tokens = $null
+            $errors = $null
+            [void][System.Management.Automation.Language.Parser]::ParseFile(
+              $_.FullName,
+              [ref]$tokens,
+              [ref]$errors
+            )
+            if ($errors.Count) {
+              $failed = $true
+              $errors | ForEach-Object { Write-Error "$($_.Extent.File): $($_.Message)" }
+            }
+          }
+          if ($failed) { exit 1 }
+
+      - name: Reject secrets and oversized payloads
+        shell: bash
+        run: |
+          set -euo pipefail
+          if find . -path ./.git -prune -o -type f \
+              \( -name '*.lic' -o -name 'wi_authentication_key' -o -name '*.bin' \) \
+              -print | grep -q .; then
+            echo 'Secret or proprietary payload pattern found.' >&2
+            exit 1
+          fi
+          if find . -path ./.git -prune -o -type f -size +5M -print | grep -q .; then
+            echo 'Unexpected file larger than 5 MiB found.' >&2
+            exit 1
+          fi
+

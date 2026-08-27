@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+readonly image="${OFFICE_VIVADO_IMAGE:-localhost/office-vivado-2024.1:ubuntu22.04}"
+readonly installer_root="${OFFICE_XILINX_INSTALLER_ROOT:-/srv/interop/fpga/runtime/installers/unified-2024.1-web}"
+readonly auth_home="${OFFICE_XILINX_AUTH_HOME:-$HOME/.amd-xilinx-installer}"
+
+if [[ ! -t 0 || ! -t 1 ]]; then
+    echo "ADR-EDA-INSTALLER-TTY-REQUIRED: run this command from an interactive terminal so AMD credentials never pass through automation." >&2
+    exit 69
+fi
+
+if ! command -v podman >/dev/null 2>&1; then
+    echo "ADR-EDA-INSTALLER-PODMAN-MISSING: podman is unavailable on the Ubuntu build host." >&2
+    exit 127
+fi
+
+if ! podman image exists "$image"; then
+    echo "ADR-EDA-INSTALLER-IMAGE-MISSING: container image '$image' is unavailable." >&2
+    exit 127
+fi
+
+if [[ ! -x "$installer_root/xsetup" ]]; then
+    echo "ADR-EDA-INSTALLER-XSETUP-MISSING: '$installer_root/xsetup' is unavailable; stage and verify the AMD 2024.1 Linux web installer first." >&2
+    exit 66
+fi
+
+install -d -m 0700 "$auth_home"
+install -d -m 0700 "$auth_home/.Xilinx"
+chmod 0700 "$auth_home" "$auth_home/.Xilinx"
+
+exec podman run \
+    --rm \
+    --interactive \
+    --tty \
+    --network slirp4netns \
+    --userns keep-id \
+    --cap-drop all \
+    --security-opt no-new-privileges \
+    --env HOME=/work \
+    --workdir /work \
+    --volume "$auth_home:/work:rw,Z" \
+    --volume "$installer_root:/installer:ro,Z" \
+    "$image" \
+    /installer/xsetup -b AuthTokenGen

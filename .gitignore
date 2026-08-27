@@ -1,0 +1,42 @@
+# Secrets and vendor payloads
+*.lic
+wi_authentication_key
+.Xilinx/
+.amd-xilinx-installer/
+downloads/
+*.bin
+
+# Toolchains, images, and generated packages
+Xilinx/
+*.oci
+*.tar
+*.tar.gz
+*.tar.zst
+*.zip
+*.sha256
+output/
+artifacts/
+jobs/
+work/
+
+# Python and tooling
+.venv/
+__pycache__/
+.pytest_cache/
+*.pyc
+
+# Vivado/Vitis generated files
+*.jou
+*.log
+*.dcp
+*.bit
+*.xsa
+*.ltx
+.Xil/
+
+# Editors and operating systems
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+

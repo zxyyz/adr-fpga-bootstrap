@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+readonly image="${OFFICE_VIVADO_IMAGE:-localhost/office-vivado-2024.1:ubuntu22.04}"
+readonly xilinx_root="${OFFICE_XILINX_ROOT:-/opt/amd/Xilinx}"
+readonly vmcp_root="${OFFICE_VMCP_ROOT:-$HOME/.vivado-mcp}"
+readonly license_root="${OFFICE_XILINX_LICENSE_DIR:-$HOME/.Xilinx}"
+readonly init_tcl=/usr/local/libexec/office-vivado-mcp/Vivado_init.tcl
+readonly container_home="$vmcp_root/container-home"
+
+[[ -d "$vmcp_root" ]] || {
+    echo "ADR-EDA-MCP-WORKSPACE: missing $vmcp_root" >&2
+    exit 66
+}
+[[ -d "$xilinx_root/Vivado/2024.1" ]] || {
+    echo "ADR-EDA-MCP-VIVADO: missing Vivado 2024.1 under $xilinx_root" >&2
+    exit 66
+}
+[[ -f "$init_tcl" ]] || {
+    echo "ADR-EDA-MCP-INIT: missing $init_tcl" >&2
+    exit 66
+}
+case "$PWD/" in
+    "$vmcp_root"/*) ;;
+    *)
+        echo "ADR-EDA-MCP-CWD: $PWD is outside $vmcp_root" >&2
+        exit 65
+        ;;
+esac
+install -d -m 0700 "$container_home/.Xilinx/Vivado"
+install -m 0644 "$init_tcl" "$container_home/.Xilinx/Vivado/Vivado_init.tcl"
+
+podman_args=(
+    run --rm --network host --pids-limit -1 --shm-size 8g
+    --ulimit nofile=65536:65536 --userns=keep-id
+    --user "$(id -u):$(id -g)" --env HOME=/tmp/vivado-mcp-home
+    --env LANG=en_US.UTF-8 --env LC_ALL=en_US.UTF-8
+    --volume "$xilinx_root:/opt/Xilinx:ro"
+    --volume "$vmcp_root:$vmcp_root:rw"
+    --volume "$container_home:/tmp/vivado-mcp-home:rw"
+    --workdir "$PWD" --interactive
+)
+license_files=()
+if [[ -d "$license_root" ]]; then
+    mapfile -d '' license_files < <(
+        find "$license_root" -maxdepth 1 -type f -name '*.lic' -print0 | sort -z
+    )
+fi
+if [[ ${#license_files[@]} -gt 0 ]]; then
+    container_license_paths=()
+    for index in "${!license_files[@]}"; do
+        container_path="/tmp/.Xilinx/license-${index}.lic"
+        podman_args+=(--volume "${license_files[$index]}:$container_path:ro")
+        container_license_paths+=("$container_path")
+    done
+    license_path_list="$(IFS=:; printf '%s' "${container_license_paths[*]}")"
+    podman_args+=(--env "XILINXD_LICENSE_FILE=$license_path_list")
+fi
+
+exec podman "${podman_args[@]}" \
+    "$image" /opt/Xilinx/Vivado/2024.1/bin/vivado "$@"

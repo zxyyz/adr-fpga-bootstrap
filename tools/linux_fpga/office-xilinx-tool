@@ -1,0 +1,112 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ $# -lt 1 ]]; then
+    echo "usage: office-xilinx-tool TOOL [ARG ...]" >&2
+    exit 64
+fi
+
+readonly tool="$1"
+shift
+
+case "$tool" in
+    vivado|xsim|xvlog|xvhdl|xelab)
+        tool_path="/opt/Xilinx/Vivado/2024.1/bin/$tool"
+        host_probe="/opt/amd/Xilinx/Vivado/2024.1/bin/$tool"
+        ;;
+    vitis|xsct|v++)
+        tool_path="/opt/Xilinx/Vitis/2024.1/bin/$tool"
+        host_probe="/opt/amd/Xilinx/Vitis/2024.1/bin/$tool"
+        ;;
+    vitis_hls)
+        tool_path="/opt/Xilinx/Vitis_HLS/2024.1/bin/vitis_hls"
+        host_probe="/opt/amd/Xilinx/Vitis_HLS/2024.1/bin/vitis_hls"
+        ;;
+    *)
+        echo "ADR-EDA-XILINX-TOOL-NAME: unsupported tool '$tool'; use vivado, xsim, xvlog, xvhdl, xelab, vitis, xsct, v++, or vitis_hls." >&2
+        exit 64
+        ;;
+esac
+
+readonly image="${OFFICE_VIVADO_IMAGE:-localhost/office-vivado-2024.1:ubuntu22.04}"
+readonly xilinx_root="${OFFICE_XILINX_ROOT:-/opt/amd/Xilinx}"
+# The installed node-locked license uses the host Ethernet MAC as its Host ID.
+# Sharing the host network namespace exposes that physical interface to FlexNet.
+readonly network="${OFFICE_XILINX_NETWORK:-host}"
+readonly license_dir="${OFFICE_XILINX_LICENSE_DIR:-$HOME/.Xilinx}"
+
+if ! command -v podman >/dev/null 2>&1; then
+    echo "ADR-EDA-XILINX-PODMAN-MISSING: podman is unavailable on the Ubuntu build host." >&2
+    exit 127
+fi
+
+if ! podman image exists "$image"; then
+    echo "ADR-EDA-XILINX-IMAGE-MISSING: container image '$image' is unavailable." >&2
+    exit 127
+fi
+
+if [[ ! -x "$host_probe" ]]; then
+    echo "ADR-EDA-XILINX-TOOL-MISSING: '$host_probe' is unavailable; repair the AMD 2024.1 installation." >&2
+    exit 127
+fi
+
+workdir="$(realpath -e "$PWD")"
+if [[ "$workdir" == /srv/interop/* ]]; then
+    bind_root=/srv/interop
+else
+    bind_root="$workdir"
+fi
+
+podman_args=(
+    run
+    --rm
+    --network "$network"
+    --cap-drop all
+    --security-opt no-new-privileges
+    --pids-limit -1
+    --shm-size 8g
+    --ulimit nofile=65536:65536
+    --env HOME=/tmp
+    --env LANG=en_US.UTF-8
+    --env LC_ALL=en_US.UTF-8
+    --volume "$xilinx_root:/opt/Xilinx:ro"
+    --volume "$bind_root:$bind_root:rw"
+    --workdir "$workdir"
+)
+
+case "$tool" in
+    vitis|xsct|v++|vitis_hls)
+        # Vitis 2024.1 bundles JRE 11.0.16. Disable the cgroup-v2 metrics path
+        # that crashes when the Ubuntu 22.04 userland runs on newer hosts.
+        java_options="-XX:-UseContainerSupport -Dlog4j2.disableJmx=true"
+        podman_args+=(
+            --env "_JAVA_OPTIONS=$java_options"
+            --env "JDK_JAVA_OPTIONS=$java_options"
+        )
+        ;;
+esac
+
+if [[ -n "${XILINXD_LICENSE_FILE:-}" && ! -f "$XILINXD_LICENSE_FILE" ]]; then
+    podman_args+=(--env "XILINXD_LICENSE_FILE=$XILINXD_LICENSE_FILE")
+else
+    license_files=()
+    if [[ -n "${XILINXD_LICENSE_FILE:-}" ]]; then
+        license_files+=("$XILINXD_LICENSE_FILE")
+    elif [[ -d "$license_dir" ]]; then
+        mapfile -d '' license_files < <(
+            find "$license_dir" -maxdepth 1 -type f -name '*.lic' -print0 | sort -z
+        )
+    fi
+    if [[ ${#license_files[@]} -gt 0 ]]; then
+        container_license_paths=()
+        for index in "${!license_files[@]}"; do
+            container_path="/tmp/.Xilinx/license-${index}.lic"
+            podman_args+=(--volume "${license_files[$index]}:$container_path:ro")
+            container_license_paths+=("$container_path")
+        done
+        license_path_list="$(IFS=:; printf '%s' "${container_license_paths[*]}")"
+        podman_args+=(--env "XILINXD_LICENSE_FILE=$license_path_list")
+    fi
+fi
+
+exec podman "${podman_args[@]}" "$image" "$tool_path" "$@"

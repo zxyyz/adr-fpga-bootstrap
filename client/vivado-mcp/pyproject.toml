@@ -1,0 +1,90 @@
+[project]
+name = "vivado-mcp"
+version = "0.4.0"
+description = "MCP server for driving remote AMD Vivado builds over SSH"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "mcp>=2.0",
+]
+
+[project.scripts]
+vmcp-mcp = "vmcp.server.main:main"
+vmcp = "vmcp.cli.main:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/vmcp"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "/config.example.toml",
+    "/pyproject.toml",
+    "/pyrightconfig.json",
+    "/README.md",
+    "/src",
+    "/uv.lock",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+markers = [
+    "remote_cli: end-to-end CLI tests that require VMCP_TEST_CONFIG",
+]
+
+[tool.black]
+line-length = 88
+target-version = ["py312"]
+
+[tool.pylint.main]
+py-version = "3.12"
+jobs = 0
+recursive = true
+ignore-paths = ['^\.venv/.*$', '.*/__pycache__/.*$']
+load-plugins = ["pylint.extensions.bad_builtin"]
+
+[tool.pylint.format]
+# Black owns formatting; this only catches what black cannot split (long
+# string literals and comments).
+max-line-length = 88
+
+[tool.pylint.messages_control]
+disable = [
+    # Formatting is black's job.
+    "format",
+    # Module docstrings carry the design rationale; per-function prose would be
+    # noise on short, self-describing helpers.
+    "missing-function-docstring",
+    "missing-class-docstring",
+    # Dataclasses and protocol adapters legitimately have few methods / many
+    # fields; the wire schemas in common/models.py are the point.
+    "too-few-public-methods",
+    "too-many-instance-attributes",
+    "too-many-arguments",
+    "too-many-positional-arguments",
+    # The tools modules necessarily look alike: same call/shape/return pattern.
+    "duplicate-code",
+]
+
+[tool.pylint.basic]
+# Short names that are clearer than any expansion in context.
+good-names = ["rc", "fh", "up", "id", "i", "s", "t", "_"]
+
+[tool.pylint.design]
+max-locals = 20
+max-branches = 15
+# Flat dispatch chains (one `if verb == ...: return ...` per command) are clearer
+# than a table plus indirection.
+max-returns = 12
+
+[dependency-groups]
+dev = [
+    "black>=26.5.1",
+    "pylint>=4.0.6",
+    "pytest>=8",
+    "pytest-asyncio>=0.24",
+]

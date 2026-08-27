@@ -1,0 +1,19 @@
+ADR FPGA Bootstrap
+Copyright (c) 2026 zxyyz
+
+This repository includes a source snapshot of vivado-mcp 0.4.0:
+
+  Upstream: https://github.com/kkkaishao/vivado-mcp
+  Commit: 2549ae26ac9a9018f1f7b7ab85703520cde6cc92
+  Copyright (c) 2026 Kai Shao
+  License: MIT (see client/vivado-mcp/LICENSE)
+
+The snapshot carries one local interoperability change: remote POSIX
+settings64.sh paths are preserved verbatim when the MCP client runs on Windows.
+
+No AMD installer, AMD/Xilinx software installation, license file,
+authentication token, or proprietary FPGA artifact is included.
+
+AMD, Xilinx, Vivado, Vitis, Zynq, and related marks are trademarks of their
+respective owners. This project is independent and is not endorsed by AMD.
+

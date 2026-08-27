@@ -1,0 +1,80 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+readonly image="${OFFICE_VIVADO_IMAGE:-localhost/office-vivado-2024.1:ubuntu22.04}"
+readonly installer_root="${OFFICE_XILINX_INSTALLER_ROOT:-/srv/interop/fpga/runtime/installers/unified-2024.1-web}"
+readonly auth_home="${OFFICE_XILINX_AUTH_HOME:-$HOME/.amd-xilinx-installer}"
+readonly config_file="${OFFICE_XILINX_INSTALL_CONFIG:-/srv/interop/fpga/runtime/install_config.2024.1.txt}"
+readonly install_root="${OFFICE_XILINX_ROOT:-/opt/amd/Xilinx}"
+readonly artifact_root="${OFFICE_XILINX_INSTALL_ARTIFACTS:-/srv/interop/fpga/artifacts/environment/vivado-2024.1-install}"
+readonly install_network="${OFFICE_XILINX_INSTALL_NETWORK:-slirp4netns}"
+
+if ! command -v podman >/dev/null 2>&1; then
+    echo "ADR-EDA-INSTALLER-PODMAN-MISSING: podman is unavailable on the Ubuntu build host." >&2
+    exit 127
+fi
+
+if ! podman image exists "$image"; then
+    echo "ADR-EDA-INSTALLER-IMAGE-MISSING: container image '$image' is unavailable." >&2
+    exit 127
+fi
+
+if [[ ! -x "$installer_root/xsetup" ]]; then
+    echo "ADR-EDA-INSTALLER-XSETUP-MISSING: '$installer_root/xsetup' is unavailable." >&2
+    exit 66
+fi
+
+if [[ ! -s "$auth_home/.Xilinx/wi_authentication_key" ]]; then
+    echo "ADR-EDA-INSTALLER-TOKEN-MISSING: generate the private AMD download token with office-xilinx-auth-token." >&2
+    exit 67
+fi
+
+if [[ ! -f "$config_file" ]]; then
+    echo "ADR-EDA-INSTALLER-CONFIG-MISSING: '$config_file' is unavailable." >&2
+    exit 66
+fi
+
+if [[ ! -d "$install_root" || ! -w "$install_root" ]]; then
+    echo "ADR-EDA-INSTALLER-DESTINATION: '$install_root' must exist and be writable by the Ubuntu build user." >&2
+    exit 73
+fi
+
+install -d -m 0700 "$auth_home/.Xilinx"
+chmod 0700 "$auth_home" "$auth_home/.Xilinx"
+chmod 0600 "$auth_home/.Xilinx/wi_authentication_key"
+install -d -m 0770 "$artifact_root"
+
+run_id="$(date -u +%Y%m%dT%H%M%SZ)"
+if [[ -f "$artifact_root/console.log" ]]; then
+    mv -- "$artifact_root/console.log" "$artifact_root/console.$run_id.previous.log"
+fi
+if [[ -f "$artifact_root/status.txt" ]]; then
+    mv -- "$artifact_root/status.txt" "$artifact_root/status.$run_id.previous.txt"
+fi
+printf 'RUNNING\n' > "$artifact_root/status.txt"
+
+set +e
+podman run \
+    --rm \
+    --network "$install_network" \
+    --userns keep-id \
+    --cap-drop all \
+    --security-opt no-new-privileges \
+    --pids-limit -1 \
+    --env HOME=/work \
+    --workdir /work \
+    --volume "$auth_home:/work:rw,Z" \
+    --volume "$installer_root:/installer:ro,Z" \
+    --volume "$config_file:/install_config.txt:ro,Z" \
+    --volume "$install_root:/opt/Xilinx:rw,Z" \
+    "$image" \
+    /installer/xsetup \
+        --agree XilinxEULA,3rdPartyEULA \
+        --batch Install \
+        --config /install_config.txt \
+    2>&1 | tee "$artifact_root/console.log"
+install_rc=${PIPESTATUS[0]}
+set -e
+
+printf 'EXIT_CODE=%s\n' "$install_rc" > "$artifact_root/status.txt"
+exit "$install_rc"

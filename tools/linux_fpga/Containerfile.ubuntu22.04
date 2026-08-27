@@ -1,0 +1,130 @@
+FROM ubuntu.azurecr.io/ubuntu:22.04
+
+LABEL org.opencontainers.image.title="ADR Vivado 2024.1 runtime"
+LABEL org.opencontainers.image.description="Supported Ubuntu 22.04 userland for ADR Linux FPGA builds"
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN sed -i 's|http://archive.ubuntu.com/ubuntu|http://azure.archive.ubuntu.com/ubuntu|g' /etc/apt/sources.list \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends \
+        bash \
+        bison \
+        bzip2 \
+        chrpath \
+        cmake \
+        ca-certificates \
+        coreutils \
+        cpio \
+        debianutils \
+        dbus-x11 \
+        diffstat \
+        file \
+        findutils \
+        flex \
+        gawk \
+        gcc \
+        g++ \
+        gzip \
+        iputils-ping \
+        git \
+        graphviz \
+        device-tree-compiler \
+        libboost-chrono-dev \
+        libboost-date-time-dev \
+        libboost-filesystem-dev \
+        libboost-program-options-dev \
+        libboost-serialization-dev \
+        libboost-system-dev \
+        libboost-test-dev \
+        libboost-thread-dev \
+        libfontconfig1 \
+        libfreetype6 \
+        libglib2.0-0 \
+        libgtk2.0-0 \
+        libgtk-3-0 \
+        libegl1-mesa \
+        libice6 \
+        libc6-dev-i386 \
+        libncurses5 \
+        libncursesw5 \
+        libnss3 \
+        libncurses5-dev \
+        liborc-0.4-dev \
+        libssl-dev \
+        libsm6 \
+        libsdl1.2-dev \
+        libstdc++6 \
+        libtinfo5 \
+        libusb-1.0-0 \
+        libusb-1.0-0-dev \
+        libudev-dev \
+        libzmq3-dev \
+        libx11-6 \
+        libxau6 \
+        libxcb1 \
+        libxdmcp6 \
+        libxext6 \
+        libxft2 \
+        libxi6 \
+        libxrender1 \
+        libxss1 \
+        libxtst6 \
+        locales \
+        make \
+        net-tools \
+        ninja-build \
+        patch \
+        pkg-config \
+        procps \
+        python3 \
+        python3-dev \
+        python3-git \
+        python3-jinja2 \
+        python3-mako \
+        python3-numpy \
+        python3-pip \
+        python3-pexpect \
+        python3-subunit \
+        python3-pytest \
+        python3-requests \
+        python3-ruamel.yaml \
+        python3-setuptools \
+        python3-venv \
+        python3-yaml \
+        pybind11-dev \
+        rsync \
+        socat \
+        tar \
+        tcl \
+        texinfo \
+        tk \
+        unzip \
+        x11-utils \
+        xvfb \
+        xterm \
+        wget \
+        xz-utils \
+        zstd \
+        lz4 \
+        zip \
+    && locale-gen en_US.UTF-8 \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libsystemd-dev libsysfs-dev systemd udev \
+    && pkg-config --exists udev systemd \
+    && python3 -c 'import ruamel.yaml' \
+    && python3 -m pip install --no-cache-dir 'kas==4.0' \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN groupadd --gid 1000 adr-builder \
+    && useradd --uid 1000 --gid 1000 --home-dir /tmp/adr47dr-build-home \
+        --shell /bin/bash adr-builder \
+    && install -d -o 1000 -g 1000 /tmp/adr47dr-build-home
+
+ENV LANG=en_US.UTF-8
+ENV LC_ALL=en_US.UTF-8
+ENV HOME=/tmp/office-vivado-home
+
+WORKDIR /work
