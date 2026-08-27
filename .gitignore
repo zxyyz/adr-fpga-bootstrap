@@ -3,21 +3,21 @@
 wi_authentication_key
 .Xilinx/
 .amd-xilinx-installer/
-downloads/
+/downloads/
 *.bin
 
 # Toolchains, images, and generated packages
-Xilinx/
+/Xilinx/
 *.oci
 *.tar
 *.tar.gz
 *.tar.zst
 *.zip
 *.sha256
-output/
-artifacts/
-jobs/
-work/
+/output/
+/artifacts/
+/jobs/
+/work/
 
 # Python and tooling
 .venv/
@@ -39,4 +39,3 @@ __pycache__/
 .idea/
 .DS_Store
 Thumbs.db
-
